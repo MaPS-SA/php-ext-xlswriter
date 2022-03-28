@@ -36,6 +36,7 @@
 #include "exception.h"
 #include "format.h"
 #include "chart.h"
+#include "rich_string.h"
 #include "help.h"
 
 #ifdef ENABLE_READER
@@ -95,6 +96,10 @@ typedef struct {
     lxw_chart_series *series;
 } xls_resource_chart_t;
 
+typedef struct {
+    lxw_rich_string_tuple *tuple;
+} xls_resource_rich_string_t;
+
 typedef struct _vtiful_xls_object {
     xls_resource_read_t   read_ptr;
     xls_resource_write_t  write_ptr;
@@ -118,21 +123,10 @@ typedef struct _vtiful_validation_object {
     zend_object zo;
 } validation_object;
 
-static inline xls_object *php_vtiful_xls_fetch_object(zend_object *obj) {
-    return (xls_object *)((char *)(obj) - XtOffsetOf(xls_object, zo));
-}
-
-static inline format_object *php_vtiful_format_fetch_object(zend_object *obj) {
-    return (format_object *)((char *)(obj) - XtOffsetOf(format_object, zo));
-}
-
-static inline chart_object *php_vtiful_chart_fetch_object(zend_object *obj) {
-    return (chart_object *)((char *)(obj) - XtOffsetOf(chart_object, zo));
-}
-
-static inline validation_object *php_vtiful_validation_fetch_object(zend_object *obj) {
-    return (validation_object *)((char *)(obj) - XtOffsetOf(validation_object, zo));
-}
+typedef struct _vtiful_rich_string_object {
+    xls_resource_rich_string_t ptr;
+    zend_object zo;
+} rich_string_object;
 
 #define REGISTER_CLASS_CONST_LONG(class_name, const_name, value) \
     zend_declare_class_constant_long(class_name, const_name, sizeof(const_name)-1, (zend_long)value);
@@ -140,10 +134,11 @@ static inline validation_object *php_vtiful_validation_fetch_object(zend_object 
 #define REGISTER_CLASS_PROPERTY_NULL(class_name, property_name, acc) \
     zend_declare_property_null(class_name, ZEND_STRL(property_name), acc);
 
-#define Z_XLS_P(zv)        php_vtiful_xls_fetch_object(Z_OBJ_P(zv));
-#define Z_CHART_P(zv)      php_vtiful_chart_fetch_object(Z_OBJ_P(zv));
-#define Z_FORMAT_P(zv)     php_vtiful_format_fetch_object(Z_OBJ_P(zv));
-#define Z_VALIDATION_P(zv) php_vtiful_validation_fetch_object(Z_OBJ_P(zv));
+#define Z_XLS_P(zv)         php_vtiful_xls_fetch_object(Z_OBJ_P(zv));
+#define Z_CHART_P(zv)       php_vtiful_chart_fetch_object(Z_OBJ_P(zv));
+#define Z_FORMAT_P(zv)      php_vtiful_format_fetch_object(Z_OBJ_P(zv));
+#define Z_VALIDATION_P(zv)  php_vtiful_validation_fetch_object(Z_OBJ_P(zv));
+#define Z_RICH_STR_P(zv)    php_vtiful_rich_string_fetch_object(Z_OBJ_P(zv));
 
 #define WORKBOOK_NOT_INITIALIZED(xls_object_t)                                                                       \
     do {                                                                                                             \
@@ -177,12 +172,12 @@ static inline validation_object *php_vtiful_validation_fetch_object(zend_object 
         }                                                                                                 \
     } while(0);
 
-#define WORKSHEET_WRITER_EXCEPTION(error)                                                  \
-    do {                                                                                   \
-        if(error > LXW_NO_ERROR) {                                                         \
-            zend_throw_exception(vtiful_exception_ce, "Worksheet write exception", error); \
-            return;                                                                        \
-        }                                                                                  \
+#define WORKSHEET_WRITER_EXCEPTION(error)                                                   \
+    do {                                                                                    \
+        if(error > LXW_NO_ERROR) {                                                          \
+            zend_throw_exception(vtiful_exception_ce, exception_message_map(error), error); \
+            return;                                                                         \
+        }                                                                                   \
     } while(0)
 
 #define FCALL_TWO_ARGS(bucket)                   \
@@ -223,11 +218,101 @@ static inline validation_object *php_vtiful_validation_fetch_object(zend_object 
 #define PROP_OBJ(zv) Z_OBJ_P(zv)
 #endif
 
+#if PHP_VERSION_ID < 80000
+#define Z_PARAM_STRING_OR_NULL(dest, dest_len) \
+	Z_PARAM_STRING_EX(dest, dest_len, 1, 0)
+#define Z_PARAM_STR_OR_NULL(dest) \
+	Z_PARAM_STR_EX(dest, 1, 0)
+#define Z_PARAM_RESOURCE_OR_NULL(dest) \
+	Z_PARAM_RESOURCE_EX(dest, 1, 0)
+#define Z_PARAM_DOUBLE_OR_NULL(dest, is_null) \
+	Z_PARAM_DOUBLE_EX(dest, is_null, 1, 0)
+#define Z_PARAM_LONG_OR_NULL(dest, is_null) \
+	Z_PARAM_LONG_EX(dest, is_null, 1, 0)
+#define Z_PARAM_ARRAY_OR_NULL(dest) \
+	Z_PARAM_ARRAY_EX(dest, 1, 0)
+#define Z_PARAM_BOOL_OR_NULL(dest, is_null) \
+	Z_PARAM_BOOL_EX(dest, is_null, 1, 0)
+#endif
 
-lxw_format           * zval_get_format(zval *handle);
-lxw_data_validation  * zval_get_validation(zval *resource);
-xls_resource_write_t * zval_get_resource(zval *handle);
-xls_resource_chart_t * zval_get_chart(zval *resource);
+static inline xls_object *php_vtiful_xls_fetch_object(zend_object *obj) {
+    if (obj == NULL) {
+        return NULL;
+    }
+
+    return (xls_object *)((char *)(obj) - XtOffsetOf(xls_object, zo));
+}
+
+static inline format_object *php_vtiful_format_fetch_object(zend_object *obj) {
+    if (obj == NULL) {
+        return NULL;
+    }
+
+    return (format_object *)((char *)(obj) - XtOffsetOf(format_object, zo));
+}
+
+static inline chart_object *php_vtiful_chart_fetch_object(zend_object *obj) {
+    if (obj == NULL) {
+        return NULL;
+    }
+
+    return (chart_object *)((char *)(obj) - XtOffsetOf(chart_object, zo));
+}
+
+static inline validation_object *php_vtiful_validation_fetch_object(zend_object *obj) {
+    if (obj == NULL) {
+        return NULL;
+    }
+
+    return (validation_object *)((char *)(obj) - XtOffsetOf(validation_object, zo));
+}
+
+static inline rich_string_object *php_vtiful_rich_string_fetch_object(zend_object *obj) {
+    if (obj == NULL) {
+        return NULL;
+    }
+
+    return (rich_string_object *)((char *)(obj) - XtOffsetOf(validation_object, zo));
+}
+
+static inline void php_vtiful_close_resource(zend_object *obj) {
+    if (obj == NULL) {
+        return;
+    }
+
+    xls_object *intern = php_vtiful_xls_fetch_object(obj);
+
+    SHEET_LINE_INIT(intern);
+
+    if (intern->write_ptr.workbook != NULL) {
+        lxw_workbook_free(intern->write_ptr.workbook);
+        intern->write_ptr.workbook = NULL;
+    }
+
+    if (intern->format_ptr.format != NULL) {
+        intern->format_ptr.format = NULL;
+    }
+
+#ifdef ENABLE_READER
+    if (intern->read_ptr.sheet_t != NULL) {
+        xlsxioread_sheet_close(intern->read_ptr.sheet_t);
+        intern->read_ptr.sheet_t = NULL;
+    }
+
+    if (intern->read_ptr.file_t != NULL) {
+        xlsxioread_close(intern->read_ptr.file_t);
+        intern->read_ptr.file_t = NULL;
+    }
+#endif
+
+    intern->read_ptr.data_type_default = READ_TYPE_EMPTY;
+}
+
+lxw_format            * zval_get_format(zval *handle);
+lxw_data_validation   * zval_get_validation(zval *resource);
+lxw_rich_string_tuple * zval_get_rich_string(zval *resource);
+xls_resource_write_t  * zval_get_resource(zval *handle);
+xls_resource_chart_t  * zval_get_chart(zval *resource);
 
 STATIC lxw_error _store_defined_name(lxw_workbook *self, const char *name, const char *app_name, const char *formula, int16_t index, uint8_t hidden);
 
@@ -244,6 +329,7 @@ void comment_show(xls_resource_write_t *res);
 void hide_worksheet(xls_resource_write_t *res);
 void first_worksheet(xls_resource_write_t *res);
 void zoom(xls_resource_write_t *res, zend_long zoom);
+void paper(xls_resource_write_t *res, zend_long type);
 void gridlines(xls_resource_write_t *res, zend_long option);
 void auto_filter(zend_string *range, xls_resource_write_t *res);
 void protection(xls_resource_write_t *res, zend_string *password);
@@ -251,6 +337,7 @@ void format_copy(lxw_format *new_format, lxw_format *other_format);
 void printed_direction(xls_resource_write_t *res, unsigned int direction);
 void xls_file_path(zend_string *file_name, zval *dir_path, zval *file_path);
 void freeze_panes(xls_resource_write_t *res, zend_long row, zend_long column);
+void margins(xls_resource_write_t *res, double left, double right, double top, double bottom);
 void set_row(zend_string *range, double height, xls_resource_write_t *res, lxw_format *format);
 void validation(xls_resource_write_t *res, zend_string *range, lxw_data_validation *validation);
 void set_column(zend_string *range, double width, xls_resource_write_t *res, lxw_format *format);
@@ -262,12 +349,14 @@ void worksheet_set_rows(lxw_row_t start, lxw_row_t end, double height, xls_resou
 void image_writer(zval *value, zend_long row, zend_long columns, double width, double height, xls_resource_write_t *res);
 void formula_writer(zend_string *value, zend_long row, zend_long columns, xls_resource_write_t *res, lxw_format *format);
 void type_writer(zval *value, zend_long row, zend_long columns, xls_resource_write_t *res, zend_string *format, lxw_format *format_handle);
+void rich_string_writer(zend_long row, zend_long columns, xls_resource_write_t *res, zval *rich_strings, lxw_format *format);
 void datetime_writer(lxw_datetime *datetime, zend_long row, zend_long columns, zend_string *format, xls_resource_write_t *res, lxw_format *format_handle);
 void url_writer(zend_long row, zend_long columns, xls_resource_write_t *res, zend_string *url, zend_string *text, zend_string *tool_tip, lxw_format *format);
 
 lxw_error workbook_file(xls_resource_write_t *self);
 
 lxw_datetime timestamp_to_datetime(zend_long timestamp);
+zend_string* char_join_to_zend_str(const char *left, const char *right);
 zend_string* str_pick_up(zend_string *left, const char *right, size_t len);
 
 #endif

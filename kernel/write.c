@@ -90,6 +90,49 @@ void type_writer(zval *value, zend_long row, zend_long columns, xls_resource_wri
     }
 }
 
+/*
+ * Write the rich string to the file
+ */
+void rich_string_writer(zend_long row, zend_long columns, xls_resource_write_t *res, zval *rich_strings, lxw_format *format)
+{
+    int index = 0, resource_count = 0;
+    zval *zv_rich_string = NULL;
+
+    lxw_col_t lxw_col = (lxw_col_t)columns;
+    lxw_row_t lxw_row = (lxw_row_t)row;
+
+    if (Z_TYPE_P(rich_strings) != IS_ARRAY) {
+        return;
+    }
+
+    ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(rich_strings), zv_rich_string)
+        if (Z_TYPE_P(zv_rich_string) != IS_OBJECT) {
+            continue;
+        }
+
+        if (!instanceof_function(Z_OBJCE_P(zv_rich_string), vtiful_rich_string_ce)) {
+            zend_throw_exception(vtiful_exception_ce, "The parameter must be an instance of Vtiful\\Kernel\\RichString.", 500);
+            return;
+        }
+
+        resource_count++;
+    ZEND_HASH_FOREACH_END();
+
+    lxw_rich_string_tuple **rich_string_list = (lxw_rich_string_tuple **)ecalloc(resource_count + 1,sizeof(lxw_rich_string_tuple *));
+
+    ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(rich_strings), zv_rich_string)
+        rich_string_object *obj = Z_RICH_STR_P(zv_rich_string);
+        rich_string_list[index] = obj->ptr.tuple;
+        index++;
+    ZEND_HASH_FOREACH_END();
+
+    rich_string_list[index] = NULL;
+
+    WORKSHEET_WRITER_EXCEPTION(worksheet_write_rich_string(res->worksheet, lxw_row, lxw_col, rich_string_list, format));
+
+    efree(rich_string_list);
+}
+
 void format_copy(lxw_format *new_format, lxw_format *other_format)
 {
     new_format->bold = other_format->bold;
@@ -212,13 +255,12 @@ void chart_writer(zend_long row, zend_long columns, xls_resource_chart_t *chart_
  */
 void datetime_writer(lxw_datetime *datetime, zend_long row, zend_long columns, zend_string *format, xls_resource_write_t *res, lxw_format *format_handle)
 {
-    lxw_format *value_format = NULL;
+    lxw_format *value_format = workbook_add_format(res->workbook);
 
     if (format_handle != NULL) {
         format_copy(value_format, format_handle);
     }
 
-    value_format = workbook_add_format(res->workbook);
     format_set_num_format(value_format, ZSTR_VAL(format));
     worksheet_write_datetime(res->worksheet, (lxw_row_t)row, (lxw_col_t)columns, datetime, value_format);
 }
@@ -279,7 +321,13 @@ void merge_cells(zend_string *range, zval *value, xls_resource_write_t *res, lxw
  */
 void set_column(zend_string *range, double width, xls_resource_write_t *res, lxw_format *format)
 {
-    worksheet_set_column(res->worksheet, COLS(ZSTR_VAL(range)), width, format);
+   int error = worksheet_set_column(res->worksheet, COLS(ZSTR_VAL(range)), width, format);
+
+    // Cells that have been placed cannot be modified using optimization mode
+    WORKSHEET_INDEX_OUT_OF_CHANGE_IN_OPTIMIZE_EXCEPTION(res, error)
+
+    // Worksheet row or column index out of range
+    WORKSHEET_INDEX_OUT_OF_CHANGE_EXCEPTION(error)
 }
 
 /*
@@ -307,7 +355,13 @@ void set_row(zend_string *range, double height, xls_resource_write_t *res, lxw_f
  */
 void validation(xls_resource_write_t *res, zend_string *range, lxw_data_validation *validation)
 {
-    worksheet_data_validation_cell(res->worksheet, CELL(ZSTR_VAL(range)), validation);
+    char *rangeStr = ZSTR_VAL(range);
+        
+    if (strchr(rangeStr, ':')) {
+	    worksheet_data_validation_range(res->worksheet, RANGE(rangeStr), validation);
+    } else {
+	    worksheet_data_validation_cell(res->worksheet, CELL(rangeStr), validation);
+    }
 }
 
 /*
@@ -388,14 +442,32 @@ void first_worksheet(xls_resource_write_t *res)
 }
 
 /*
+ * Paper format
+ */
+void paper(xls_resource_write_t *res, zend_long type)
+{
+    worksheet_set_paper(res->worksheet, type);
+}
+
+/*
+ * Set margins
+ */
+void margins(xls_resource_write_t *res, double left, double right, double top, double bottom)
+{
+    worksheet_set_margins(res->worksheet, left, right, top, bottom);
+}
+
+/*
  * Call finalization code and close file.
  */
 lxw_error
 workbook_file(xls_resource_write_t *self)
 {
+    lxw_sheet *sheet = NULL;
     lxw_worksheet *worksheet = NULL;
     lxw_packager *packager = NULL;
     lxw_error error = LXW_NO_ERROR;
+    char codename[LXW_MAX_SHEETNAME_LENGTH] = { 0 };
 
     /* Add a default worksheet if non have been added. */
     if (!self->workbook->num_sheets)
@@ -403,15 +475,46 @@ workbook_file(xls_resource_write_t *self)
 
     /* Ensure that at least one worksheet has been selected. */
     if (self->workbook->active_sheet == 0) {
-        worksheet = STAILQ_FIRST(self->workbook->worksheets);
-        worksheet->selected = 1;
-        worksheet->hidden = 0;
+        sheet = STAILQ_FIRST(self->workbook->sheets);
+        if (!sheet->is_chartsheet) {
+            worksheet = sheet->u.worksheet;
+            worksheet->selected = 1;
+            worksheet->hidden = 0;
+        }
     }
 
-    /* Set the active sheet. */
-    STAILQ_FOREACH(worksheet, self->workbook->worksheets, list_pointers) {
+    /* Set the active sheet and check if a metadata file is needed. */
+    STAILQ_FOREACH(sheet, self->workbook->sheets, list_pointers) {
+        if (sheet->is_chartsheet)
+            continue;
+        else
+            worksheet = sheet->u.worksheet;
+
         if (worksheet->index == self->workbook->active_sheet)
             worksheet->active = 1;
+
+        if (worksheet->has_dynamic_arrays)
+            self->workbook->has_metadata = LXW_TRUE;
+    }
+
+    /* Set workbook and worksheet VBA codenames if a macro has been added. */
+    if (self->workbook->vba_project) {
+        if (!self->workbook->vba_codename)
+            workbook_set_vba_name(self->workbook, "ThisWorkbook");
+
+        STAILQ_FOREACH(sheet, self->workbook->sheets, list_pointers) {
+            if (sheet->is_chartsheet)
+                continue;
+            else
+                worksheet = sheet->u.worksheet;
+
+            if (!worksheet->vba_codename) {
+                lxw_snprintf(codename, LXW_MAX_SHEETNAME_LENGTH, "Sheet%d",
+                             worksheet->index + 1);
+
+                worksheet_set_vba_name(worksheet, codename);
+            }
+        }
     }
 
     /* Prepare the worksheet VML elements such as comments. */
@@ -427,13 +530,15 @@ workbook_file(xls_resource_write_t *self)
     _add_chart_cache_data(self->workbook);
 
     /* Create a packager object to assemble sub-elements into a zip file. */
-    packager = lxw_packager_new(self->workbook->filename, self->workbook->options.tmpdir, self->workbook->options.use_zip64);
+    packager = lxw_packager_new(self->workbook->filename,
+                                self->workbook->options.tmpdir,
+                                self->workbook->options.use_zip64);
 
     /* If the packager fails it is generally due to a zip permission error. */
     if (packager == NULL) {
         fprintf(stderr, "[ERROR] workbook_close(): "
-                "Error creating '%s'. "
-                "Error = %s\n", self->workbook->filename, strerror(errno));
+                        "Error creating '%s'. "
+                        "Error = %s\n", self->workbook->filename, strerror(errno));
 
         error = LXW_ERROR_CREATING_XLSX_FILE;
         goto mem_error;
@@ -448,15 +553,15 @@ workbook_file(xls_resource_write_t *self)
     /* Error and non-error conditions fall through to the cleanup code. */
     if (error == LXW_ERROR_CREATING_TMPFILE) {
         fprintf(stderr, "[ERROR] workbook_close(): "
-                "Error creating tmpfile(s) to assemble '%s'. "
-                "Error = %s\n", self->workbook->filename, strerror(errno));
+                        "Error creating tmpfile(s) to assemble '%s'. "
+                        "Error = %s\n", self->workbook->filename, strerror(errno));
     }
 
     /* If LXW_ERROR_ZIP_FILE_OPERATION then errno is set by zlib. */
     if (error == LXW_ERROR_ZIP_FILE_OPERATION) {
         fprintf(stderr, "[ERROR] workbook_close(): "
-                "Zlib error while creating xlsx file '%s'. "
-                "Error = %s\n", self->workbook->filename, strerror(errno));
+                        "Zlib error while creating xlsx file '%s'. "
+                        "Error = %s\n", self->workbook->filename, strerror(errno));
     }
 
     /* If LXW_ERROR_ZIP_PARAMETER_ERROR then errno is set by zip. */
@@ -490,11 +595,11 @@ workbook_file(xls_resource_write_t *self)
 
     if (error == LXW_ERROR_ZIP_CLOSE) {
         fprintf(stderr, "[ERROR] workbook_close(): "
-                "Zlib error closing xlsx file '%s'.\n", self->workbook->filename);
+                        "Zlib error closing xlsx file '%s'.\n", self->workbook->filename);
     }
 
     mem_error:
-        lxw_packager_free(packager);
+    lxw_packager_free(packager);
 
     return error;
 }

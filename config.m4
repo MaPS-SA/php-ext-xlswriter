@@ -8,20 +8,21 @@ PHP_ARG_WITH(libxlsxio, system libxlsxio,
 [  --with-libxlsxio=DIR     Use system libxlsxio], no, no)
 
 PHP_ARG_ENABLE(reader, enable xlsx reader support,
-[  --enable-reader          Enable xlsx reader?], no, no)
+[  --enable-reader          Enable xlsx reader?], yes, yes)
 
 if test "$PHP_XLSWRITER" != "no"; then
     xls_writer_sources="
     xlswriter.c \
-    kernel/exception.c \
-    kernel/resource.c \
+    kernel/chart.c \
     kernel/common.c \
     kernel/excel.c \
-    kernel/write.c \
+    kernel/exception.c \
     kernel/format.c \
-    kernel/chart.c \
     kernel/help.c \
+    kernel/resource.c \
+    kernel/rich_string.c \
     kernel/validation.c \
+    kernel/write.c \
     "
 
     xls_read_sources="
@@ -49,6 +50,7 @@ if test "$PHP_XLSWRITER" != "no"; then
     library/libxlsxwriter/src/drawing.c \
     library/libxlsxwriter/src/format.c \
     library/libxlsxwriter/src/hash_table.c \
+    library/libxlsxwriter/src/metadata.c \
     library/libxlsxwriter/src/packager.c \
     library/libxlsxwriter/src/relationships.c \
     library/libxlsxwriter/src/shared_strings.c \

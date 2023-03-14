@@ -686,7 +686,7 @@ _prepare_defined_names(lxw_workbook *self)
                                     worksheet->autofilter.last_row,
                                     worksheet->autofilter.last_col);
 
-            lxw_snprintf(range, LXW_DEFINED_NAME_LENGTH, "%s!%s",
+            lxw_snprintf(range, LXW_DEFINED_NAME_LENGTH, "'%s'!%s",
                          worksheet->quoted_name, area);
 
             /* Autofilters are the only defined name to set the hidden flag. */

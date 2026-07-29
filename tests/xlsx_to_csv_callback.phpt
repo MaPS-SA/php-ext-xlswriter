@@ -3,7 +3,6 @@ Check for vtiful presence
 --SKIPIF--
 <?php
 require __DIR__ . '/include/skipif.inc';
-skip_disable_reader();
 ?>
 --FILE--
 <?php
@@ -30,8 +29,8 @@ var_dump($csvResult);
 
 $fp = fopen('./tests/file.csv', 'r');
 
-var_dump(fgetcsv($fp));
-var_dump(fgetcsv($fp));
+var_dump(fgetcsv($fp, 1000, ',', '"', '\\'));
+var_dump(fgetcsv($fp, 1000, ',', '"', '\\'));
 ?>
 --CLEAN--
 <?php

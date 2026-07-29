@@ -41,27 +41,54 @@ PHP_VTIFUL_API zend_object *validation_objects_new(zend_class_entry *ce)
 
 /* {{{ validation_objects_free
  */
+/* Validation owns copies of its string fields: estrdup on set, efree in dtor.
+ * libxlsx deep-copies them again at validation() time, so the copy only needs
+ * to outlive the Validation object. Mirrors conditional_format's cf_set_str and
+ * removes the dangling-raw-pointer fragility of storing ZSTR_VAL directly. */
+static void vld_set_str(const char **slot, zend_string *zs)
+{
+    if (*slot) {
+        efree((void *)*slot);
+    }
+    *slot = estrdup(ZSTR_VAL(zs));
+}
+
 static void validation_objects_free(zend_object *object)
 {
     validation_object *intern = php_vtiful_validation_fetch_object(object);
 
-    if (intern->ptr.validation->value_list != NULL) {
-        int index = 0;
-
-        do {
-            if (intern->ptr.validation->value_list[index] == NULL) {
-                break;
-            }
-
-            efree(intern->ptr.validation->value_list[index]);
-            index++;
-        } while (1);
-
-        efree(intern->ptr.validation->value_list);
-    }
-
+    /* Guard NULL first: an object created via newInstanceWithoutConstructor()
+     * never allocates ptr.validation, so value_list must not be touched yet. */
     if (intern->ptr.validation != NULL) {
-        efree(intern->ptr.validation);
+        lxlsx_data_validation *v = intern->ptr.validation;
+
+        if (v->value_list != NULL) {
+            int index = 0;
+
+            do {
+                if (v->value_list[index] == NULL) {
+                    break;
+                }
+
+                /* value_list is `const char **` in libxlsxwriter; we allocated the
+                 * strings ourselves, so cast away const for efree (mirrors valueList). */
+                efree((void *)v->value_list[index]);
+                index++;
+            } while (1);
+
+            efree((void *)v->value_list);
+        }
+
+        /* free the owned string copies set via vld_set_str */
+        if (v->value_formula)   efree((void *)v->value_formula);
+        if (v->minimum_formula) efree((void *)v->minimum_formula);
+        if (v->maximum_formula) efree((void *)v->maximum_formula);
+        if (v->input_title)     efree((void *)v->input_title);
+        if (v->input_message)   efree((void *)v->input_message);
+        if (v->error_title)     efree((void *)v->error_title);
+        if (v->error_message)   efree((void *)v->error_message);
+
+        efree(v);
     }
 
     zend_object_std_dtor(&intern->zo);
@@ -157,7 +184,7 @@ ZEND_BEGIN_ARG_INFO_EX(validation_error_message_arginfo, 0, 0, 1)
                 ZEND_ARG_INFO(0, error_message)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(validation_to_resource_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(validation_to_resource_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 /* }}} */
 
@@ -172,7 +199,7 @@ PHP_METHOD(vtiful_validation, __construct)
     obj = Z_VALIDATION_P(getThis());
 
     if (obj->ptr.validation == NULL) {
-        obj->ptr.validation = ecalloc(1, sizeof(lxw_data_validation));
+        obj->ptr.validation = ecalloc(1, sizeof(lxlsx_data_validation));
     }
 
     obj->ptr.validation->value_list = NULL;
@@ -196,7 +223,7 @@ PHP_METHOD(vtiful_validation, validationType)
         RETURN_NULL();
     }
 
-    if (zl_validate_type < LXW_VALIDATION_TYPE_NONE || zl_validate_type > LXW_VALIDATION_TYPE_ANY) {
+    if (zl_validate_type < LXLSX_VALIDATION_TYPE_NONE || zl_validate_type > LXLSX_VALIDATION_TYPE_ANY) {
         RETURN_NULL();
     }
 
@@ -223,7 +250,7 @@ PHP_METHOD(vtiful_validation, criteriaType)
         RETURN_NULL();
     }
 
-    if (zl_criteria_type < LXW_VALIDATION_CRITERIA_NONE || zl_criteria_type > LXW_VALIDATION_CRITERIA_LESS_THAN_OR_EQUAL_TO) {
+    if (zl_criteria_type < LXLSX_VALIDATION_CRITERIA_NONE || zl_criteria_type > LXLSX_VALIDATION_CRITERIA_LESS_THAN_OR_EQUAL_TO) {
         RETURN_NULL();
     }
 
@@ -254,12 +281,12 @@ PHP_METHOD(vtiful_validation, ignoreBlank)
     ZVAL_COPY(return_value, getThis());
 
     if (zb_ignore_blank) {
-        obj->ptr.validation->ignore_blank = LXW_VALIDATION_ON;
+        obj->ptr.validation->ignore_blank = LXLSX_VALIDATION_ON;
 
         return;
     }
 
-    obj->ptr.validation->ignore_blank = LXW_VALIDATION_OFF;
+    obj->ptr.validation->ignore_blank = LXLSX_VALIDATION_OFF;
 }
 /* }}} */
 
@@ -284,12 +311,12 @@ PHP_METHOD(vtiful_validation, showInput)
     ZVAL_COPY(return_value, getThis());
 
     if (zb_show_input) {
-        obj->ptr.validation->show_input = LXW_VALIDATION_ON;
+        obj->ptr.validation->show_input = LXLSX_VALIDATION_ON;
 
         return;
     }
 
-    obj->ptr.validation->show_input = LXW_VALIDATION_OFF;
+    obj->ptr.validation->show_input = LXLSX_VALIDATION_OFF;
 }
 /* }}} */
 
@@ -314,12 +341,12 @@ PHP_METHOD(vtiful_validation, showError)
     ZVAL_COPY(return_value, getThis());
 
     if (zb_show_error) {
-        obj->ptr.validation->show_error = LXW_VALIDATION_ON;
+        obj->ptr.validation->show_error = LXLSX_VALIDATION_ON;
 
         return;
     }
 
-    obj->ptr.validation->show_error = LXW_VALIDATION_OFF;
+    obj->ptr.validation->show_error = LXLSX_VALIDATION_OFF;
 }
 /* }}} */
 
@@ -340,7 +367,7 @@ PHP_METHOD(vtiful_validation, errorType)
         RETURN_NULL();
     }
 
-    if (zl_error_type < LXW_VALIDATION_ERROR_TYPE_STOP || zl_error_type > LXW_VALIDATION_ERROR_TYPE_INFORMATION) {
+    if (zl_error_type < LXLSX_VALIDATION_ERROR_TYPE_STOP || zl_error_type > LXLSX_VALIDATION_ERROR_TYPE_INFORMATION) {
         RETURN_NULL();
     }
 
@@ -371,12 +398,12 @@ PHP_METHOD(vtiful_validation, dropdown)
     ZVAL_COPY(return_value, getThis());
 
     if (zb_dropdown) {
-        obj->ptr.validation->dropdown = LXW_VALIDATION_ON;
+        obj->ptr.validation->dropdown = LXLSX_VALIDATION_ON;
 
         return;
     }
 
-    obj->ptr.validation->dropdown = LXW_VALIDATION_OFF;
+    obj->ptr.validation->dropdown = LXLSX_VALIDATION_OFF;
 }
 /* }}} */
 
@@ -422,7 +449,7 @@ PHP_METHOD(vtiful_validation, valueFormula)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->value_formula = ZSTR_VAL(zs_value_formula);
+    vld_set_str(&obj->ptr.validation->value_formula, zs_value_formula);
 }
 /* }}} */
 
@@ -433,7 +460,7 @@ PHP_METHOD(vtiful_validation, valueList)
     int index = 0;
     char **list = NULL;
 
-    Bucket *bucket;
+    zval *data;
     zval *zv_value_list = NULL;
     validation_object *obj = NULL;
 
@@ -453,11 +480,14 @@ PHP_METHOD(vtiful_validation, valueList)
                 break;
             }
 
-            efree(obj->ptr.validation->value_list[index]);
+            /* libxlsxwriter declares value_list as `const char **`, but the
+             * strings were allocated by us via ecalloc — cast away the const
+             * so efree's signature accepts them. */
+            efree((void *)obj->ptr.validation->value_list[index]);
             index++;
         } while (1);
 
-        efree(obj->ptr.validation->value_list);
+        efree((void *)obj->ptr.validation->value_list);
         obj->ptr.validation->value_list = NULL;
     }
 
@@ -465,29 +495,55 @@ PHP_METHOD(vtiful_validation, valueList)
 
     zend_array *za_value_list = Z_ARR_P(zv_value_list);
 
-    ZEND_HASH_FOREACH_BUCKET(za_value_list, bucket)
-            if (Z_TYPE(bucket->val) != IS_STRING) {
+    /* Excel caps the inline data-validation list formula at 255 characters,
+     * including the surrounding quotes and comma separators. libxlsxwriter's
+     * _validation_list_to_csv() uses a fixed `255*4+3` byte buffer and
+     * strcat()s into it without bounds checks (see #486 / #530 / #546), so
+     * exceeding the limit overflows the buffer and corrupts the heap. Reject
+     * the input here with a clear exception and a pointer at the workaround
+     * (write the items into a hidden range and use a formula reference). */
+    {
+        size_t csv_chars = 2; /* opening + closing quote */
+        size_t n = 0;
+        ZEND_HASH_FOREACH_VAL(za_value_list, data) {
+            if (Z_TYPE_P(data) != IS_STRING) {
                 zend_throw_exception(vtiful_exception_ce, "Arrays can only consist of strings.", 300);
                 return;
             }
-            if (ZSTR_LEN(bucket->val.value.str) == 0 ) {
+            if (Z_STRLEN_P(data) == 0) {
                 zend_throw_exception(vtiful_exception_ce, "Array value is empty string.", 301);
                 return;
             }
-    ZEND_HASH_FOREACH_END();
+            csv_chars += lxlsx_utf8_strlen(Z_STRVAL_P(data));
+            n++;
+        } ZEND_HASH_FOREACH_END();
+        if (n > 1) csv_chars += (n - 1); /* commas between items */
+
+        if (csv_chars > 255) {
+            zend_throw_exception_ex(vtiful_exception_ce, 302,
+                "Inline data-validation list is %zu characters; Excel limits it to 255. "
+                "Write the values to a hidden range/column and pass a formula reference "
+                "(e.g. valueList not supported for this many items; use a range formula).",
+                csv_chars);
+            return;
+        }
+    }
 
     index = 0;
     list = ecalloc(za_value_list->nNumOfElements + 1, sizeof(char *));
 
-    ZEND_HASH_FOREACH_BUCKET(za_value_list, bucket)
-            list[index] = ecalloc(1, bucket->val.value.str->len + 1);
-            strcpy(list[index],bucket->val.value.str->val);
+    ZEND_HASH_FOREACH_VAL(za_value_list, data) {
+            list[index] = ecalloc(1, Z_STRLEN_P(data) + 1);
+            strcpy(list[index], Z_STRVAL_P(data));
             index++;
-    ZEND_HASH_FOREACH_END();
+    } ZEND_HASH_FOREACH_END();
 
     list[index] = NULL;
 
-    obj->ptr.validation->value_list = list;
+    /* `value_list` is declared `const char **` in libxlsxwriter; the cast
+     * is required on Alpine/musl gcc where -Wincompatible-pointer-types is
+     * promoted to an error. */
+    obj->ptr.validation->value_list = (const char **)list;
 }
 /* }}} */
 
@@ -507,6 +563,8 @@ PHP_METHOD(vtiful_validation, valueDatetime)
     if (obj->ptr.validation == NULL) {
         RETURN_NULL();
     }
+
+    ZVAL_COPY(return_value, getThis());
 
     obj->ptr.validation->value_datetime = timestamp_to_datetime(timestamp);
 }
@@ -554,7 +612,7 @@ PHP_METHOD(vtiful_validation, minimumFormula)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->minimum_formula = ZSTR_VAL(zs_minimum_formula);
+    vld_set_str(&obj->ptr.validation->minimum_formula, zs_minimum_formula);
 }
 /* }}} */
 
@@ -574,6 +632,8 @@ PHP_METHOD(vtiful_validation, minimumDatetime)
     if (obj->ptr.validation == NULL) {
         RETURN_NULL();
     }
+
+    ZVAL_COPY(return_value, getThis());
 
     obj->ptr.validation->minimum_datetime = timestamp_to_datetime(timestamp);
 }
@@ -621,7 +681,7 @@ PHP_METHOD(vtiful_validation, maximumFormula)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->maximum_formula = ZSTR_VAL(zs_maximum_formula);
+    vld_set_str(&obj->ptr.validation->maximum_formula, zs_maximum_formula);
 }
 /* }}} */
 
@@ -641,6 +701,8 @@ PHP_METHOD(vtiful_validation, maximumDatetime)
     if (obj->ptr.validation == NULL) {
         RETURN_NULL();
     }
+
+    ZVAL_COPY(return_value, getThis());
 
     obj->ptr.validation->maximum_datetime = timestamp_to_datetime(timestamp);
 }
@@ -665,7 +727,7 @@ PHP_METHOD(vtiful_validation, inputTitle)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->input_title = ZSTR_VAL(zs_input_title);
+    vld_set_str(&obj->ptr.validation->input_title, zs_input_title);
 }
 /* }}} */
 
@@ -688,7 +750,7 @@ PHP_METHOD(vtiful_validation, inputMessage)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->input_message = ZSTR_VAL(zs_input_message);
+    vld_set_str(&obj->ptr.validation->input_message, zs_input_message);
 }
 /* }}} */
 
@@ -711,7 +773,7 @@ PHP_METHOD(vtiful_validation, errorTitle)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->error_title = ZSTR_VAL(zs_error_title);
+    vld_set_str(&obj->ptr.validation->error_title, zs_error_title);
 }
 /* }}} */
 
@@ -734,7 +796,7 @@ PHP_METHOD(vtiful_validation, errorMessage)
 
     ZVAL_COPY(return_value, getThis());
 
-    obj->ptr.validation->error_message = ZSTR_VAL(zs_error_message);
+    vld_set_str(&obj->ptr.validation->error_message, zs_error_message);
 }
 /* }}} */
 
@@ -788,38 +850,38 @@ VTIFUL_STARTUP_FUNCTION(validation) {
     vtiful_validation_ce = zend_register_internal_class(&ce);
 
     memcpy(&validation_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
-    validation_handlers.offset   = XtOffsetOf(validation_object, zo);
+    validation_handlers.offset   = offsetof(validation_object, zo);
     validation_handlers.free_obj = validation_objects_free;
 
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_INTEGER",         LXW_VALIDATION_TYPE_INTEGER)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_INTEGER_FORMULA", LXW_VALIDATION_TYPE_INTEGER_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DECIMAL",         LXW_VALIDATION_TYPE_DECIMAL)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DECIMAL_FORMULA", LXW_VALIDATION_TYPE_DECIMAL_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LIST",            LXW_VALIDATION_TYPE_LIST)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LIST_FORMULA",    LXW_VALIDATION_TYPE_LIST_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DATE",            LXW_VALIDATION_TYPE_DATE)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DATE_FORMULA",    LXW_VALIDATION_TYPE_DATE_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DATE_NUMBER",     LXW_VALIDATION_TYPE_DATE_NUMBER)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_TIME",            LXW_VALIDATION_TYPE_TIME)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_TIME_FORMULA",    LXW_VALIDATION_TYPE_TIME_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_TIME_NUMBER",     LXW_VALIDATION_TYPE_TIME_NUMBER)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LENGTH",          LXW_VALIDATION_TYPE_LENGTH)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LENGTH_FORMULA",  LXW_VALIDATION_TYPE_LENGTH_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_CUSTOM_FORMULA",  LXW_VALIDATION_TYPE_CUSTOM_FORMULA)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_ANY",             LXW_VALIDATION_TYPE_ANY)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_INTEGER",         LXLSX_VALIDATION_TYPE_INTEGER)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_INTEGER_FORMULA", LXLSX_VALIDATION_TYPE_INTEGER_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DECIMAL",         LXLSX_VALIDATION_TYPE_DECIMAL)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DECIMAL_FORMULA", LXLSX_VALIDATION_TYPE_DECIMAL_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LIST",            LXLSX_VALIDATION_TYPE_LIST)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LIST_FORMULA",    LXLSX_VALIDATION_TYPE_LIST_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DATE",            LXLSX_VALIDATION_TYPE_DATE)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DATE_FORMULA",    LXLSX_VALIDATION_TYPE_DATE_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_DATE_NUMBER",     LXLSX_VALIDATION_TYPE_DATE_NUMBER)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_TIME",            LXLSX_VALIDATION_TYPE_TIME)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_TIME_FORMULA",    LXLSX_VALIDATION_TYPE_TIME_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_TIME_NUMBER",     LXLSX_VALIDATION_TYPE_TIME_NUMBER)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LENGTH",          LXLSX_VALIDATION_TYPE_LENGTH)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_LENGTH_FORMULA",  LXLSX_VALIDATION_TYPE_LENGTH_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_CUSTOM_FORMULA",  LXLSX_VALIDATION_TYPE_CUSTOM_FORMULA)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "TYPE_ANY",             LXLSX_VALIDATION_TYPE_ANY)
 
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_BETWEEN",                  LXW_VALIDATION_CRITERIA_BETWEEN)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_NOT_BETWEEN",              LXW_VALIDATION_CRITERIA_NOT_BETWEEN)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_EQUAL_TO",                 LXW_VALIDATION_CRITERIA_EQUAL_TO)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_NOT_EQUAL_TO",             LXW_VALIDATION_CRITERIA_NOT_EQUAL_TO)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_GREATER_THAN",             LXW_VALIDATION_CRITERIA_GREATER_THAN)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_LESS_THAN",                LXW_VALIDATION_CRITERIA_LESS_THAN)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_GREATER_THAN_OR_EQUAL_TO", LXW_VALIDATION_CRITERIA_GREATER_THAN_OR_EQUAL_TO)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_LESS_THAN_OR_EQUAL_TO",    LXW_VALIDATION_CRITERIA_LESS_THAN_OR_EQUAL_TO)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_BETWEEN",                  LXLSX_VALIDATION_CRITERIA_BETWEEN)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_NOT_BETWEEN",              LXLSX_VALIDATION_CRITERIA_NOT_BETWEEN)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_EQUAL_TO",                 LXLSX_VALIDATION_CRITERIA_EQUAL_TO)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_NOT_EQUAL_TO",             LXLSX_VALIDATION_CRITERIA_NOT_EQUAL_TO)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_GREATER_THAN",             LXLSX_VALIDATION_CRITERIA_GREATER_THAN)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_LESS_THAN",                LXLSX_VALIDATION_CRITERIA_LESS_THAN)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_GREATER_THAN_OR_EQUAL_TO", LXLSX_VALIDATION_CRITERIA_GREATER_THAN_OR_EQUAL_TO)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "CRITERIA_LESS_THAN_OR_EQUAL_TO",    LXLSX_VALIDATION_CRITERIA_LESS_THAN_OR_EQUAL_TO)
 
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "ERROR_TYPE_STOP",        LXW_VALIDATION_ERROR_TYPE_STOP)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "ERROR_TYPE_WARNING",     LXW_VALIDATION_ERROR_TYPE_WARNING)
-    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "ERROR_TYPE_INFORMATION", LXW_VALIDATION_ERROR_TYPE_INFORMATION)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "ERROR_TYPE_STOP",        LXLSX_VALIDATION_ERROR_TYPE_STOP)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "ERROR_TYPE_WARNING",     LXLSX_VALIDATION_ERROR_TYPE_WARNING)
+    REGISTER_CLASS_CONST_LONG(vtiful_validation_ce, "ERROR_TYPE_INFORMATION", LXLSX_VALIDATION_ERROR_TYPE_INFORMATION)
 
     return SUCCESS;
 }

@@ -1,7 +1,9 @@
 --TEST--
 Check for vtiful presence
 --SKIPIF--
-<?php if (!extension_loaded("xlswriter")) print "skip"; ?>
+<?php
+require __DIR__ . '/include/skipif.inc';
+?>
 --FILE--
 <?php
 $config = ['path' => './tests'];
@@ -14,6 +16,11 @@ $filePath = $excel->fileName('show_comment.xlsx')
     ->output();
 
 var_dump($filePath);
+
+/* Round-trip: file opens and data is readable. */
+$v_   = new \Vtiful\Kernel\Excel($config);
+$d_   = $v_->openFile('show_comment.xlsx')->openSheet()->getSheetData();
+var_dump($d_);
 ?>
 --CLEAN--
 <?php
@@ -21,3 +28,12 @@ var_dump($filePath);
 ?>
 --EXPECT--
 string(25) "./tests/show_comment.xlsx"
+array(1) {
+  [0]=>
+  array(2) {
+    [0]=>
+    string(4) "Item"
+    [1]=>
+    string(4) "Cost"
+  }
+}

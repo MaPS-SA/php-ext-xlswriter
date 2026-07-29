@@ -18,17 +18,12 @@
 #include "ext/standard/info.h"
 #include "xlswriter.h"
 
-#if ENABLE_READER
-#include <xlsxio_version.h>
-#include <xlsxio_read.h>
-#endif
-
 int le_xls_writer;
 
 ZEND_BEGIN_ARG_INFO_EX(xlswriter_get_version_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(xlswriter_get_auther_arginfo, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(xlswriter_get_author_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 /* {{{ xlswriter_get_version
@@ -57,6 +52,8 @@ PHP_MINIT_FUNCTION(xlswriter)
 	VTIFUL_STARTUP_MODULE(chart);
     VTIFUL_STARTUP_MODULE(validation);
     VTIFUL_STARTUP_MODULE(rich_string);
+    VTIFUL_STARTUP_MODULE(conditional_format);
+    VTIFUL_STARTUP_MODULE(table);
 
 	le_xls_writer = zend_register_list_destructors_ex(_php_vtiful_xls_close, NULL, VTIFUL_RESOURCE_NAME, module_number);
 
@@ -100,27 +97,12 @@ PHP_MINFO_FUNCTION(xlswriter)
 #if defined(PHP_XLSWRITER_VERSION)
     php_info_print_table_row(2, "Version", PHP_XLSWRITER_VERSION);
 #endif
-#ifdef LXW_VERSION
-#ifdef HAVE_LIBXLSXWRITER
-    /* Build time */
-    php_info_print_table_row(2, "libxlsxwriter headers version", LXW_VERSION);
-    /* Run time, available since 0.7.9 */
-    php_info_print_table_row(2, "libxlsxwriter library version", lxw_version());
-#else
-    php_info_print_table_row(2, "bundled libxlsxwriter version", LXW_VERSION);
-#endif
+#ifdef LXLSX_VERSION
+    php_info_print_table_row(2, "bundled libxlsx version", LXLSX_VERSION);
+    php_info_print_table_row(2, "bundled libxlsx runtime version", lxlsx_version());
 #endif
 
-#if ENABLE_READER
-#if HAVE_LIBXLSXIO
-    /* Build time */
-    php_info_print_table_row(2, "libxlsxio headers version", XLSXIO_VERSION_STRING);
-    /* Run time */
-    php_info_print_table_row(2, "libxlsxio library version", xlsxioread_get_version_string());
-#else
-    php_info_print_table_row(2, "bundled libxlsxio version", XLSXIO_VERSION_STRING);
-#endif
-#endif
+    php_info_print_table_row(2, "bundled libxlsx reader", "enabled");
 
 	php_info_print_table_end();
 }
@@ -132,7 +114,7 @@ PHP_MINFO_FUNCTION(xlswriter)
  */
 const zend_function_entry xlswriter_functions[] = {
     PHP_FE(xlswriter_get_version, xlswriter_get_version_arginfo)
-    PHP_FE(xlswriter_get_author,  xlswriter_get_auther_arginfo)
+    PHP_FE(xlswriter_get_author,  xlswriter_get_author_arginfo)
 	PHP_FE_END
 };
 /* }}} */

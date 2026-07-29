@@ -1,7 +1,9 @@
 --TEST--
 Check for vtiful presence
 --SKIPIF--
-<?php if (!extension_loaded("xlswriter")) print "skip"; ?>
+<?php
+require __DIR__ . '/include/skipif.inc';
+?>
 --FILE--
 <?php
 $config = ['path' => './tests'];
@@ -17,9 +19,19 @@ $filePath = $excel->fileName('tutorial.xlsx')
     ->output();
 
 var_dump($validation, $filePath);
+
+/* Round-trip: validation didn't corrupt the workbook. */
+$v_ = new \Vtiful\Kernel\Excel($config);
+$d_ = $v_->openFile('tutorial.xlsx')->openSheet()->getSheetData();
+var_dump($d_);
 ?>
---EXPECT--
-object(Vtiful\Kernel\Validation)#1 (0) {
+--CLEAN--
+<?php
+@unlink(__DIR__ . '/tutorial.xlsx');
+?>
+--EXPECTF--
+object(Vtiful\Kernel\Validation)#%d (0) {
 }
 string(21) "./tests/tutorial.xlsx"
-
+array(0) {
+}

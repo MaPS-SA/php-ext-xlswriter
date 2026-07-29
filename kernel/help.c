@@ -16,7 +16,7 @@
 #include "ext/standard/php_filestat.h"
 
 /* {{{ */
-zend_long date_double_to_timestamp(double value) {
+zend_long date_double_to_timestamp(double value, int uses_1904) {
     double days, partDay, hours, minutes, seconds;
 
     days    = floor(value);
@@ -29,7 +29,13 @@ zend_long date_double_to_timestamp(double value) {
 
     zval datetime;
     php_date_instantiate(php_date_get_date_ce(), &datetime);
-    php_date_initialize(Z_PHPDATE_P(&datetime), ZEND_STRL("1899-12-30"), NULL, NULL, 1);
+    /* Date system epoch: 1904 workbooks count from 1904-01-01, 1900 workbooks
+     * from 1899-12-30 (the -2 day base absorbs Excel's 1900 leap-year bug).
+     * Timezone semantics are preserved (DateTime uses the default tz); only the
+     * epoch base differs, fixing 1904 workbooks. */
+    php_date_initialize(Z_PHPDATE_P(&datetime),
+                        uses_1904 ? "1904-01-01" : "1899-12-30", sizeof("1899-12-30") - 1,
+                        NULL, NULL, 1);
 
     zval _modify_args[1], _modify_result;
     smart_str _modify_arg_string = {0};
@@ -38,6 +44,7 @@ zend_long date_double_to_timestamp(double value) {
     }
     smart_str_append_long(&_modify_arg_string, days);
     smart_str_appendl(&_modify_arg_string, " days", 5);
+    ZSTR_VAL(_modify_arg_string.s)[ZSTR_LEN(_modify_arg_string.s)] = '\0';
     ZVAL_STR(&_modify_args[0], _modify_arg_string.s);
     call_object_method(&datetime, "modify", 1, _modify_args, &_modify_result);
     zval_ptr_dtor(&datetime);
@@ -104,3 +111,10 @@ unsigned int file_exists(const char *path) {
     return XLSWRITER_TRUE;
 }
 /* }}} */
+
+lxlsx_row_col_options* default_row_col_options() {
+    size_t obj_size = sizeof(lxlsx_row_col_options);
+    void *obj = emalloc(obj_size);
+    memset(obj, 0, obj_size);
+    return obj;
+}

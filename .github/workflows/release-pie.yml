@@ -1,0 +1,89 @@
+name: release-pie-source
+
+# Attach a PIE-installable source package to every published release.
+#
+# PIE's "pre-packaged-source" method (declared in composer.json) downloads a
+# release asset named php_<ext>-<version>-src.{tgz,zip}; without it
+# `pie install viest/xlswriter` cannot resolve a download URL and fails
+# (issue #580). The archive wraps the full source — including the libexpat
+# submodule that a plain repo zip would omit — in a single top-level directory,
+# which composer/PIE strips on install so config.m4 ends up at the build root.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  pie-source:
+    name: Attach PIE source package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          submodules: recursive
+
+      - name: Build PIE pre-packaged source archives
+        run: |
+          set -eu
+          tag="${{ github.ref_name }}"
+          stage="${RUNNER_TEMP}/xlswriter-${tag}"
+          tgz="${GITHUB_WORKSPACE}/php_xlswriter-${tag}-src.tgz"
+          zipf="${GITHUB_WORKSPACE}/php_xlswriter-${tag}-src.zip"
+
+          mkdir -p "${stage}"
+          # Ship only what is needed to build the extension. In particular the
+          # expat submodule carries ~82 MB of XML test data under
+          # library/libexpat/testdata; bundling it inflated the source archive
+          # to ~86 MB uncompressed, which exhausted PHP's default 128 MB
+          # memory_limit while Composer/PIE extracted the tarball on install
+          # (issue: `pie install viest/xlswriter` fatal in TarDownloader). Only
+          # library/libexpat/expat/lib is compiled (see config.m4), so drop the
+          # rest of expat plus our own dev-only trees.
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='library/libexpat/testdata' \
+            --exclude='library/libexpat/expat/tests' \
+            --exclude='library/libexpat/expat/examples' \
+            --exclude='library/libexpat/expat/fuzz' \
+            --exclude='library/libexpat/expat/xmlwf' \
+            --exclude='library/libexpat/expat/doc' \
+            --exclude='library/libxlsx/test' \
+            --exclude='bench' \
+            --exclude='backup' \
+            --exclude='examples' \
+            --exclude='resource' \
+            ./ "${stage}/"
+
+          tar -C "${RUNNER_TEMP}" -czf "${tgz}" "xlswriter-${tag}"
+          ( cd "${RUNNER_TEMP}" && zip -qr "${zipf}" "xlswriter-${tag}" )
+
+          # Fail the release if a build essential or the bundled submodule is
+          # missing from the package.
+          tar tzf "${tgz}" | grep -q "xlswriter-${tag}/config.m4"
+          tar tzf "${tgz}" | grep -q "xlswriter-${tag}/library/libexpat/expat/lib/xmlparse.c"
+          # Guard against re-bloating the archive: the expat test data must not
+          # come back, and the compressed tarball should stay small.
+          if tar tzf "${tgz}" | grep -q "library/libexpat/testdata"; then
+            echo "error: expat testdata leaked back into the source package" >&2
+            exit 1
+          fi
+          size=$(stat -c%s "${tgz}")
+          if [ "${size}" -gt 5242880 ]; then
+            echo "error: source tarball is ${size} bytes (> 5 MiB); check for bundled bloat" >&2
+            exit 1
+          fi
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            "php_xlswriter-${{ github.ref_name }}-src.tgz" \
+            "php_xlswriter-${{ github.ref_name }}-src.zip" \
+            --clobber --repo "${{ github.repository }}"

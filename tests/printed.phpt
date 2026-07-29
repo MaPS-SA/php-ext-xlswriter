@@ -1,7 +1,9 @@
 --TEST--
 Check for vtiful presence
 --SKIPIF--
-<?php if (!extension_loaded("xlswriter")) print "skip"; ?>
+<?php
+require __DIR__ . '/include/skipif.inc';
+?>
 --FILE--
 <?php
 try {
@@ -31,16 +33,41 @@ $excel->fileName('printed_landscape.xlsx', 'sheet1')
     ->output();
 
 var_dump($excel);
+
+$config = ['path' => './tests'];
+$excel  = new \Vtiful\Kernel\Excel($config);
+
+$excel->fileName('printed_scale.xlsx', 'sheet1')
+    ->setPrintScale(180)
+    ->output();
+
+var_dump($excel);
+
+/* Round-trip: each printed-* writer setting is recoverable via getPageSetup.
+ * printed_portrait guards the bug where setPortrait() was silently overwritten
+ * by an unconditional set_landscape(), so the file always came back landscape. */
+$psPortrait = (new \Vtiful\Kernel\Excel($config))->openFile('printed_portrait.xlsx')->openSheet()->getPageSetup();
+echo "portrait.orientation: " . $psPortrait['orientation'] . "\n";
+
+foreach (['printed_landscape' => 'landscape', 'printed_scale' => null] as $name => $expectedOrient) {
+    $ps = (new \Vtiful\Kernel\Excel($config))->openFile($name . '.xlsx')->openSheet()->getPageSetup();
+    if ($name === 'printed_landscape') {
+        echo "landscape.orientation: " . $ps['orientation'] . "\n";
+    } else {
+        echo "scale.scale: " . $ps['scale'] . "\n";
+    }
+}
 ?>
 --CLEAN--
 <?php
 @unlink(__DIR__ . '/printed_portrait.xlsx');
 @unlink(__DIR__ . '/printed_landscape.xlsx');
+@unlink(__DIR__ . '/printed_scale.xlsx');
 ?>
---EXPECT--
+--EXPECTF--
 int(130)
 string(51) "Please create a file first, use the filename method"
-object(Vtiful\Kernel\Excel)#3 (3) {
+object(Vtiful\Kernel\Excel)#%d (3) {
   ["config":"Vtiful\Kernel\Excel":private]=>
   array(1) {
     ["path"]=>
@@ -51,7 +78,7 @@ object(Vtiful\Kernel\Excel)#3 (3) {
   ["read_row_type":"Vtiful\Kernel\Excel":private]=>
   NULL
 }
-object(Vtiful\Kernel\Excel)#1 (3) {
+object(Vtiful\Kernel\Excel)#%d (3) {
   ["config":"Vtiful\Kernel\Excel":private]=>
   array(1) {
     ["path"]=>
@@ -62,3 +89,17 @@ object(Vtiful\Kernel\Excel)#1 (3) {
   ["read_row_type":"Vtiful\Kernel\Excel":private]=>
   NULL
 }
+object(Vtiful\Kernel\Excel)#%d (3) {
+  ["config":"Vtiful\Kernel\Excel":private]=>
+  array(1) {
+    ["path"]=>
+    string(7) "./tests"
+  }
+  ["fileName":"Vtiful\Kernel\Excel":private]=>
+  string(26) "./tests/printed_scale.xlsx"
+  ["read_row_type":"Vtiful\Kernel\Excel":private]=>
+  NULL
+}
+portrait.orientation: portrait
+landscape.orientation: landscape
+scale.scale: 180

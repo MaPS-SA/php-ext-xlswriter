@@ -1,37 +1,43 @@
 <div align=center>
-<img height="214" src="resource/logo_now.png"/>
+<img alt="php-ext-xlswriter" height="214" src="resource/logo_now.png"/>
 </div>
 
 <div align=center>
-<a href="https://github.com/viest/php-ext-xlswriter/releases"><img src="https://img.shields.io/github/release/viest/php-ext-excel-export.svg"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter/releases"><img alt="php-ext-xlswriter" src="https://img.shields.io/github/release/viest/php-ext-excel-export.svg"/></a>
 </div>
 
 <div align=center>
-<a href="https://github.com/viest/php-ext-xlswriter"><img src="https://img.shields.io/badge/platform-macos%20%7C%20linux%20%7C%20windows-brightgreen.svg"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://img.shields.io/badge/platform-macos%20%7C%20linux%20%7C%20windows-brightgreen.svg"/></a>
 </div>
 
 <div align=center>
-<a href="https://travis-ci.com/viest/php-ext-xlswriter"><img src="https://travis-ci.com/viest/php-ext-xlswriter.svg?branch=master"/></a>
-<a href="https://ci.appveyor.com/project/viest/php-ext-excel-export/branch/master"><img src="https://ci.appveyor.com/api/projects/status/w4cfjo9e4gsrs6rn/branch/master?svg=true"/></a>
-<a href="https://app.fossa.io/projects/git%2Bgithub.com%2Fviest%2Fphp-ext-xlswriter?ref=badge_shield"><img src="https://app.fossa.io/api/projects/git%2Bgithub.com%2Fviest%2Fphp-ext-xlswriter.svg?type=shield"/></a>
+<a href="https://gitee.com/viest/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://gitee.com/viest/php-ext-xlswriter/badge/star.svg?theme=gvp"/></a>
+<a href="https://gitcode.com/viest/php-ext-xlsxwriter"><img alt="php-ext-xlswriter" src="https://gitcode.com/viest/php-ext-xlsxwriter/star/badge.svg"/></a>
 </div>
 
 <div align=center>
-<a href="https://opencollective.com/php-ext-xlswriter"><img src="https://opencollective.com/php-ext-xlswriter/all/badge.svg?label=financial+contributors"/></a>
-<a href="https://github.com/viest/php-ext-xlswriter"><img src="https://img.shields.io/badge/PHP-%3E%3D%207.0-brightgreen.svg"/></a>
-<a href="https://github.com/viest/php-ext-xlswriter"><img src="https://img.shields.io/github/contributors/viest/php-ext-excel-export.svg"/></a>
-<a href="https://github.com/viest/php-ext-xlswriter"><img src="https://img.shields.io/badge/license-BSD-green.svg"/></a>
-<a href="https://github.com/viest/php-ext-xlswriter"><img src="https://img.shields.io/github/issues/viest/php-ext-excel-export.svg"/></a>
-<a href="https://hits.seeyoufarm.com"><img src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fviest%2Fphp-ext-xlswriter&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter/actions"><img alt="php-ext-xlswriter" src="https://img.shields.io/github/actions/workflow/status/viest/php-ext-xlswriter/main.yml?branch=master&logo=github"></a>
+<a href="https://ci.appveyor.com/project/viest/php-ext-xlswriter/branch/master"><img alt="php-ext-xlswriter" src="https://ci.appveyor.com/api/projects/status/w4cfjo9e4gsrs6rn/branch/master?svg=true"/></a>
+<a href="https://app.fossa.io/projects/git%2Bgithub.com%2Fviest%2Fphp-ext-xlswriter?ref=badge_shield"><img alt="php-ext-xlswriter" src="https://app.fossa.io/api/projects/git%2Bgithub.com%2Fviest%2Fphp-ext-xlswriter.svg?type=shield"/></a>
+</div>
+
+<div align=center>
+<a href="https://opencollective.com/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://opencollective.com/php-ext-xlswriter/all/badge.svg?label=financial+contributors"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://img.shields.io/badge/PHP-%3E%3D%207.0-brightgreen.svg"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://img.shields.io/github/contributors/viest/php-ext-excel-export.svg"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://img.shields.io/badge/license-BSD-green.svg"/></a>
+<a href="https://github.com/viest/php-ext-xlswriter"><img alt="php-ext-xlswriter" src="https://img.shields.io/github/issues/viest/php-ext-excel-export.svg"/></a>
 </div>
 
 ## Why use xlswriter
 
-Please refer to the image below. PHPExcel has been unable to work properly for memory reasons at 40,000 and 100000 points, but it can be resolved by modifying the ini configuration, but the time may take longer to complete the work;
+The chart below compares xlswriter with PhpSpreadsheet (the maintained successor to PHPExcel) when exporting an XLSX file, scaled all the way to Excel's row limit. Writing 1,048,576 rows × 10 columns, xlswriter is about 20× faster, and its fixed-memory mode keeps peak memory flat at ~30 MB no matter how many rows you write — whereas a pure-PHP library's memory grows with the data (≈7 GB for the same file).
 
-![php-excel](resource/performance_comparison.png)
+![xlswriter vs PhpSpreadsheet performance](resource/performance_comparison.png)
 
-xlswriter is a PHP C Extension that can be used to write text, numbers, formulas and hyperlinks to multiple worksheets in an Excel 2007+ XLSX file. It supports features such as:
+> The two xlswriter modes track within ~10% of each other on time. Fixed-memory mode is marginally faster because it streams each row straight to disk and frees it immediately — a single pass, with no full in-memory model to build up and then serialize a second time at the end. The trade-off is that, unlike normal mode, it can no longer revisit a cell once it has been written (and its strings are stored inline rather than de-duplicated, so the file can be slightly larger). Normal mode keeps the whole workbook in memory, which is what lets you write cells in any order and re-style them before saving.
+
+xlswriter is a PHP C Extension for Excel 2007+ XLSX files. It writes text, numbers, formulas, dates, charts, images and hyperlinks to new workbooks, opens existing files to edit them and save the result, reads their contents back, and evaluates formulas to a computed value. It supports features such as:
 
 ###### Writer
 
@@ -42,7 +48,11 @@ xlswriter is a PHP C Extension that can be used to write text, numbers, formulas
 * Autofilters.
 * Charts.
 * Data validation and drop down lists.
+* Conditional formatting.
+* Rich text, comments and hyperlinks.
 * Worksheet PNG/JPEG images.
+* Edit existing workbooks — open a file, update cell values, styles, merged ranges and row/column sizes, add worksheets, images and charts, then save the result.
+* Formula calculation — evaluate a formula and get its computed value, and write formulas with a pre-computed cached result.
 * Memory optimization mode for writing large files.
 * Works on Linux, FreeBSD, OpenBSD, OS X, Windows.
 * Compiles for 32 and 64 bit.
@@ -51,16 +61,46 @@ xlswriter is a PHP C Extension that can be used to write text, numbers, formulas
 
 ###### Reader
 
-* Full read data
-* Cursor read data
-* Read by data type
+* Full read mode and cursor read mode.
+* Read by data type.
+* Read cell styles and number formats.
+* Read merged cells.
+* Read images, charts and comments.
+* Read formulas together with their cached values.
 
 #### Install
 
 ###### Unix
 
+Both install methods below build from source, so the zlib development headers
+must be present first (they are often missing on minimal images):
+
+```bash
+# Debian / Ubuntu
+apt-get install -y zlib1g-dev
+# Alpine
+apk add zlib-dev
+# RHEL / CentOS / Fedora
+yum install -y zlib-devel
+```
+
+Then install with either **PECL** or **PIE**:
+
+**PECL**
+
 ```bash
 pecl install xlswriter
+```
+
+**PIE**
+
+[PIE](https://github.com/php/pie) also builds from source and additionally needs
+the autotools build chain (autoconf, make, a compiler and **libtool**). It can
+install those missing build tools for you with `--auto-install-build-tools`, but
+it cannot install zlib — make sure the headers above are in place first:
+
+```bash
+pie install --auto-install-build-tools viest/xlswriter
 ```
 
 ###### Windows
@@ -98,14 +138,6 @@ Includes extensive and detailed instructions that make it easy to get started wi
 ```bash
 composer require viest/php-ext-xlswriter-ide-helper:dev-master
 ```
-
-## Exchange group
-
-<img width="160" src="resource/qq.jpg"/>
-
-## Financial donation
-
-<img height="220" src="resource/pay.jpg"/>
 
 ## Contributors
 
